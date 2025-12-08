@@ -79,6 +79,9 @@ def main():
                         help="Path to save logs. Print to StdOut if log-path is not set")
     parser.add_argument("--save-model", action="store_true", default=False,
                         help="For Saving the current Model")
+    parser.add_argument("--model-path", type=str, default="mnist_cnn.pt",
+                            help="Path to the trained model file")
+
 
     if dist.is_available():
         parser.add_argument("--backend", type=str, help="Distributed backend",
@@ -135,8 +138,9 @@ def main():
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)
 
-    if (args.save_model):
-        torch.save(model.state_dict(), "mnist_cnn.pt")
+    if args.save_model:
+        torch.save(model.state_dict(), args.model_path)
+        print(f"Model saved to {args.model_path}")
 
 
 if __name__ == "__main__":
