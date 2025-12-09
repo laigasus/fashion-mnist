@@ -1,0 +1,174 @@
+# PIPELINE DEFINITION
+# Name: pytorch-train-pipeline
+# Description: Pipeline with existing PVC using kfp.kubernetes
+# Inputs:
+#    code_repo_url: str [Default: 'https://gitlab.clush.net/jook/e2e-test.git']
+#    pvc_name: str [Default: 'model-pvc']
+components:
+  comp-clone-code:
+    executorLabel: exec-clone-code
+    inputDefinitions:
+      parameters:
+        code_repo_url:
+          parameterType: STRING
+        mount_path:
+          parameterType: STRING
+  comp-test-model:
+    executorLabel: exec-test-model
+    inputDefinitions:
+      parameters:
+        mount_path:
+          parameterType: STRING
+  comp-train-model:
+    executorLabel: exec-train-model
+    inputDefinitions:
+      parameters:
+        mount_path:
+          parameterType: STRING
+deploymentSpec:
+  executors:
+    exec-clone-code:
+      container:
+        args:
+        - "\n            # \uCF54\uB4DC \uC800\uC7A5\uC18C \uD074\uB860\n        \
+          \    echo \"Cloning code repository: {{$.inputs.parameters['code_repo_url']}}\"\
+          \n            git clone {{$.inputs.parameters['code_repo_url']}} {{$.inputs.parameters['mount_path']}}/code\n\
+          \            \n            # \uD074\uB860\uB41C \uD30C\uC77C \uD655\uC778\
+          \n            echo \"Cloned files:\"\n            ls -lah {{$.inputs.parameters['mount_path']}}/code/\n\
+          \            \n            # train.py\uC640 test.py \uD30C\uC77C \uC874\uC7AC\
+          \ \uD655\uC778\n            if [ -f {{$.inputs.parameters['mount_path']}}/code/train.py\
+          \ ]; then\n                echo \"\u2713 train.py found\"\n            else\n\
+          \                echo \"\u2717 train.py not found\"\n                exit\
+          \ 1\n            fi\n            \n            if [ -f {{$.inputs.parameters['mount_path']}}/code/test.py\
+          \ ]; then\n                echo \"\u2713 test.py found\"\n            else\n\
+          \                echo \"\u2717 test.py not found\"\n                exit\
+          \ 1\n            fi\n            \n            echo \"Code cloning completed\
+          \ successfully\"\n            "
+        command:
+        - sh
+        - -c
+        image: alpine/git:latest
+    exec-test-model:
+      container:
+        args:
+        - "\n            # PVC\uC5D0 \uD074\uB860\uB41C \uCF54\uB4DC \uC0AC\uC6A9\n\
+          \            echo \"Using code from PVC: {{$.inputs.parameters['mount_path']}}/code\"\
+          \n            cd {{$.inputs.parameters['mount_path']}}/code\n          \
+          \  \n            # test.py \uD30C\uC77C \uD655\uC778\n            if [ !\
+          \ -f test.py ]; then\n                echo \"ERROR: test.py not found in\
+          \ {{$.inputs.parameters['mount_path']}}/code\"\n                exit 1\n\
+          \            fi\n            \n            # \uD14C\uC2A4\uD2B8 \uC2E4\uD589\
+          \n            echo \"Start testing...\"\n            torchrun test.py  \
+          \           --model-path=../model/model.pt\n            \n            #\
+          \ TODO \uBCF4\uACE0\uC11C \uC5C5\uB85C\uB4DC\n            "
+        command:
+        - sh
+        - -c
+        image: docker.io/pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime
+    exec-train-model:
+      container:
+        args:
+        - "\n            # PVC\uC5D0 \uD074\uB860\uB41C \uCF54\uB4DC \uC0AC\uC6A9\n\
+          \            echo \"Using code from PVC: {{$.inputs.parameters['mount_path']}}/code\"\
+          \n            cd {{$.inputs.parameters['mount_path']}}/code\n          \
+          \  \n            # train.py \uD30C\uC77C \uD655\uC778\n            if [\
+          \ ! -f train.py ]; then\n                echo \"ERROR: train.py not found\
+          \ in {{$.inputs.parameters['mount_path']}}/code\"\n                exit\
+          \ 1\n            fi\n            \n            # \uBAA8\uB378 \uC800\uC7A5\
+          \ \uB514\uB809\uD1A0\uB9AC \uC0DD\uC131\n            mkdir -p ../model\n\
+          \            \n            # \uD559\uC2B5 \uC2E4\uD589\n            echo\
+          \ \"Start training...\"\n            torchrun train.py             --epochs=1\
+          \             --save-model             --model-path=../model/model.pt\n\
+          \            "
+        command:
+        - sh
+        - -c
+        image: docker.io/pytorch/pytorch:2.9.1-cuda12.6-cudnn9-runtime
+        resources:
+          cpuLimit: 2.0
+          memoryLimit: 4.0
+          resourceCpuLimit: '2'
+          resourceMemoryLimit: 4G
+pipelineInfo:
+  description: Pipeline with existing PVC using kfp.kubernetes
+  name: pytorch-train-pipeline
+root:
+  dag:
+    tasks:
+      clone-code:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-clone-code
+        inputs:
+          parameters:
+            code_repo_url:
+              componentInputParameter: code_repo_url
+            mount_path:
+              runtimeValue:
+                constant: ./
+        taskInfo:
+          name: clone-code
+      test-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-test-model
+        dependentTasks:
+        - train-model
+        inputs:
+          parameters:
+            mount_path:
+              runtimeValue:
+                constant: ./
+        taskInfo:
+          name: test-model
+      train-model:
+        cachingOptions:
+          enableCache: true
+        componentRef:
+          name: comp-train-model
+        dependentTasks:
+        - clone-code
+        inputs:
+          parameters:
+            mount_path:
+              runtimeValue:
+                constant: ./
+        taskInfo:
+          name: train-model
+  inputDefinitions:
+    parameters:
+      code_repo_url:
+        defaultValue: https://gitlab.clush.net/jook/e2e-test.git
+        isOptional: true
+        parameterType: STRING
+      pvc_name:
+        defaultValue: model-pvc
+        isOptional: true
+        parameterType: STRING
+schemaVersion: 2.1.0
+sdkVersion: kfp-2.15.2
+---
+platforms:
+  kubernetes:
+    deploymentSpec:
+      executors:
+        exec-clone-code:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: ./
+            pvcNameParameter:
+              componentInputParameter: pvc_name
+        exec-test-model:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: ./
+            pvcNameParameter:
+              componentInputParameter: pvc_name
+        exec-train-model:
+          pvcMount:
+          - componentInputParameter: pvc_name
+            mountPath: ./
+            pvcNameParameter:
+              componentInputParameter: pvc_name
